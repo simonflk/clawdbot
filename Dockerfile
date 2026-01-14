@@ -30,4 +30,4 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/index.js", "gateway-daemon", "--bind", "loopback", "--port", "18789", "--allow-unconfigured"]
