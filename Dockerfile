@@ -1,6 +1,6 @@
 FROM node:22-bookworm
 
-# Install build essentials and dependencies for Homebrew
+# 1. Install build essentials and dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -8,26 +8,6 @@ RUN apt-get update && apt-get install -y \
     procps \
     sudo \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Bun (required for build scripts)
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
-
-# Install Homebrew as a non-root user (Homebrew refuses to install as root)
-RUN useradd -m -s /bin/bash linuxbrew && \
-    echo 'linuxbrew ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-USER linuxbrew
-RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Switch back to root for the rest of the build
-USER root
-ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
-ENV HOMEBREW_NO_ENV_HINTS=1
-ENV HOMEBREW_NO_AUTO_UPDATE=1
-
-RUN corepack enable
-
-WORKDIR /app
 
 # Arguments for extra packages if needed
 ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
@@ -38,6 +18,26 @@ RUN if [ -n "$CLAWDBOT_DOCKER_APT_PACKAGES" ]; then \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
 
+# 2. Install Homebrew as the 'node' user
+# We use the existing 'node' user (standard in node images) for both brew and the app
+RUN echo 'node ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+USER node
+RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 3. Set up Paths (including Homebrew and Bun)
+ENV PATH="/home/node/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
+ENV HOMEBREW_NO_ENV_HINTS=1
+ENV HOMEBREW_NO_AUTO_UPDATE=1
+
+# 4. Install Bun for the node user
+RUN curl -fsSL https://bun.sh/install | bash
+
+# Switch back to root briefly to set up the app directory
+USER root
+RUN corepack enable
+WORKDIR /app
+
+# 5. Build process
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY ui/package.json ./ui/package.json
 COPY patches ./patches
@@ -50,6 +50,12 @@ RUN pnpm build
 RUN pnpm ui:install
 RUN pnpm ui:build
 
+# 6. Final Permissions & Switch User
+# Ensure the node user owns the app directory and has a home for config
+RUN chown -R node:node /app
+USER node
 ENV NODE_ENV=production
 
+# The home directory for the 'node' user is /home/node
+# IMPORTANT: Ensure your Coolify mounts point to /home/node/.clawdbot
 CMD ["node", "dist/index.js", "gateway-daemon", "--bind", "lan", "--port", "18789", "--allow-unconfigured"]
