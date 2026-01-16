@@ -59,7 +59,12 @@ RUN pnpm build && \
     pnpm ui:install && \
     pnpm ui:build
 
-# 9. Final Permissions & Switch User
+# 9. Set up Persistent Home Overlay
+RUN mkdir -p /home/node/.config
+RUN ln -sf /home/node/.persistent/.gitconfig /home/node/.gitconfig && \
+    ln -sf /home/node/.persistent/.config/gogcli /home/node/.config/gogcli
+
+# 10. Final Permissions & Switch User
 RUN chown -R node:node /app
 USER node
 ENV NODE_ENV=production
