@@ -1,15 +1,13 @@
 # 1. Builder for Go-based tools (Fast & Reliable)
 FROM golang:1.25-bookworm AS go-builder
-RUN go install github.com/steipete/gogcli@latest && \
-    go install github.com/yakitrak/obsidian-cli@latest && \
-    go install github.com/steipete/summarize@latest && \
-    go install github.com/steipete/gifgrep/cmd/gifgrep@latest && \
-    go install github.com/reworkd/gemini-cli@latest
+RUN apt-get update && apt-get install -y libsecret-1-dev pkg-config
+RUN go install github.com/steipete/gogcli/cmd/gog@latest && \
+    go install github.com/Yakitrak/obsidian-cli@latest && \
+    go install github.com/steipete/gifgrep/cmd/gifgrep@latest
 
 FROM node:22-bookworm
 
-# 2. Install system essentials + ffmpeg (Static Layer)
-# Using apt for ffmpeg avoids slow Homebrew source builds on ARM64
+# 2. Install system essentials + ffmpeg + utilities (Static Layer)
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -20,37 +18,36 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     ffmpeg \
     poppler-utils \
+    jq \
+    libnss3 \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Set up Node user
+# 3. Set up Node user (We stay root for global installs)
 RUN echo 'node ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-USER node
 
 # 4. Set up Paths
-# Removed linuxbrew paths to save space and speed up resolution
 ENV PATH="/home/node/.bun/bin:/home/node/.local/bin:${PATH}"
 ENV HOMEBREW_NO_ENV_HINTS=1
 ENV HOMEBREW_NO_AUTO_UPDATE=1
 
-# 5. Install Tool Managers (Bun & UV)
+# 5. Global NPM tools (Run as root)
+RUN npm install -g @steipete/summarize @google/gemini-cli clawdhub
+
+# 6. Switch to node user
+USER node
+
+# 7. Install Tool Managers (Bun & UV) into /home/node
 RUN curl -fsSL https://bun.sh/install | bash && \
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 6. Install Go tools from builder
-# We map them to the expected binary names used by the app
-COPY --from=go-builder /go/bin/gogcli /home/node/.local/bin/gog
+# 8. Install Go tools from builder
+COPY --from=go-builder /go/bin/gog /home/node/.local/bin/gog
 COPY --from=go-builder /go/bin/obsidian-cli /home/node/.local/bin/obsidian-cli
-COPY --from=go-builder /go/bin/summarize /home/node/.local/bin/summarize
 COPY --from=go-builder /go/bin/gifgrep /home/node/.local/bin/gifgrep
-COPY --from=go-builder /go/bin/gemini-cli /home/node/.local/bin/gemini
 
-# 7. Install Python tools via uv (Fast, uses pre-built wheels)
-# Replacing Homebrew install with uv avoids the 1-hour build time
+# 9. Install Python tools via uv
 RUN uv tool install openai-whisper && \
-    uv tool install gemini-cli
-
-# 8. Global NPM & UV tools
-RUN npm install -g clawdhub && \
+    uv tool install yt-dlp && \
     uv tool install nano-pdf
 
 # --- START OF FREQUENTLY CHANGING LAYERS ---
