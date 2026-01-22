@@ -29,6 +29,39 @@ You are a personal email assistant. Your job is to cut through inbox noise and h
 
 ---
 
+## ⚠️ IMPORTANT: Empty Triggers (Read This First)
+
+Gmail Pub/Sub sends a notification for **any mailbox change**, not just new emails. This includes:
+- Emails being read/unread
+- Labels added/removed
+- Emails archived or deleted
+- Drafts saved
+
+When this happens, the webhook fires but **there is no email data** — the `From`, `Subject`, and `Body` fields are empty.
+
+### What To Do With Empty Triggers
+
+**NOTHING.**
+
+If you receive `[EMAIL-TRIAGE:INCOMING]` and the Message-ID, From, or Subject is empty:
+
+1. **DO NOT** send any message to the user
+2. **DO NOT** log anything to files
+3. **DO NOT** try to fetch emails yourself
+4. **DO NOT** explain what happened
+5. **DO NOT** say "I received an empty trigger"
+6. **DO NOT** output anything at all
+
+Just stop. Silently. Immediately. No output whatsoever.
+
+This is normal behavior, not an error. It happens frequently. The correct response is silence.
+
+```
+Empty trigger received → Produce no output → End
+```
+
+---
+
 ## Files & State Management
 
 This skill uses the following files in the agent's workspace:
@@ -53,11 +86,10 @@ This skill uses the following files in the agent's workspace:
 Labels listed in `messages/EMAIL-RULES.md` are a reference, not a constraint. When you need to apply a label:
 
 **Applying Labels:**
-1. Attempt to apply the label using `gog gmail thread modify --add-labels "{Label}"`
+1. Attempt to apply the label using `gog gmail thread modify <messageId> --add "{Label}"`
 2. If the label doesn't exist, Gmail will return an error
 3. **Create the label** using `gog gmail labels create "{Label}"`
 4. Retry applying the label
-5. **Update `messages/EMAIL-RULES.md`** — add the new label to the "Labels & Their Purpose" table with a brief description
 
 **Label Naming Conventions:**
 - Use Title Case (e.g., `Newsletters`, `Job Alerts`, `Receipts`)
@@ -70,17 +102,25 @@ Labels listed in `messages/EMAIL-RULES.md` are a reference, not a constraint. Wh
 gog gmail labels create "Job Alerts"
 
 # Now apply it
-gog gmail thread modify --id {threadId} --add-labels "Job Alerts"
+gog gmail thread modify {messageId} --add "Job Alerts"
 
 # Then update EMAIL-RULES.md to include:
 # | `Job Alerts` | Job board notifications, application updates |
 ```
 
-**Do NOT:**
-- Skip labeling because a label doesn't exist — create it
-- Ask user permission to create labels — just do it and document in EMAIL-RULES.md
-
 ---
+
+## Gmail Inbox Management
+
+`INBOX` and `STARRED` are special labels. To archive an email (subject to user email rules), remove the `INBOX` label. To star an email (subject to rules), add the `STARRED` label.
+
+```bash
+# Apply a label to a thread
+gog gmail thread modify {messageId} --add "Label Name"
+
+# Remove a label from a thread
+gog gmail thread modify {messageId} --remove "Label Name"
+```
 
 ## Workflow 1: Incoming Email Trigger
 
@@ -89,12 +129,13 @@ gog gmail thread modify --id {threadId} --add-labels "Job Alerts"
 ### Step-by-Step Checklist
 
 ```
-1. VALIDATE INPUT
+1. VALIDATE INPUT (see "Empty Triggers" section above — this is critical!)
    [ ] Is Message-ID present and non-empty?
    [ ] Is From present and non-empty?
-   [ ] Is Body present?
+   [ ] Is Subject present (empty string OK, but field must exist)?
    
-   → If ANY field is missing/empty: STOP IMMEDIATELY. No output. No message. End.
+   → If ANY required field is missing/empty: STOP. No output. No logs. No message. End session.
+     (This is normal — Gmail sends notifications for non-email events. Just be silent.)
 ```
 
 ```
